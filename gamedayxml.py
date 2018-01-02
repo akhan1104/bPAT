@@ -1,7 +1,11 @@
 # functions to parse mlbgameday xml data
+# The design of this could(should) definitely be improved,
+# but I'm just looking to scrape data
 # Created: 12/14/17
 from urllib2 import urlopen
-from datetime import date, timedelta
+from sets import Set
+from datetime import date, timedelta, datetime
+from time import time
 import xml.etree.ElementTree as ET
 import pandas as pd
 
@@ -99,11 +103,17 @@ def parseBoxScore(url):
     batting, pitching = list(), list()
 
     for i in list(root):
-        for j in list(i):
+        for a, b in enumerate(list(i)):
             if i.tag == 'batting':
-                batting.append(j.attrib)
+                batting.append(b.attrib)
             elif i.tag == 'pitching':
-                pitching.append(j.attrib)
+                if a == 0:
+                    # flag starting pitcher
+                    b.attrib['SP'] = 1
+                else:
+                    # not a starting pitcher
+                    b.attrib['SP'] = 0
+                pitching.append(b.attrib)
 
     # to data frame then drop empty rows
     b, p = pd.DataFrame(batting), pd.DataFrame(pitching)
@@ -142,14 +152,73 @@ def getSeasonDays(start, end):
     return urls
 
 
-### Test Script ### - Eventually just functions
-year = 2017
-month = '08'
-day = 11
+def appendQS(pitchers):
+    """ Append quality start to pitching stats
+        Input: Pitchers data frame
+        Output: Same dataframe with a quality start column"""
+    pitchers['Quality_Start'] = (pitchers.er <= 3) & (pitchers.out >= 18) & (pitchers.SP)
+     
+    return pitchers
 
-time = (year, month, day)
-t0_2017 = date(2017, 4, 02)
-tf_2017 = date(2017, 5, 01)
+
+def getPlayerInfo(game_url, gameDF, unique, isHitter):
+    """ Pull some player info, populates a unique table, if its been seen before it won't pull that player
+        Input: URL containing the base gameday directory
+               Single game data frame containing players from that game
+               Hash set containing previously seen players
+               Hitter/Pitcher flag 
+        Output: DataFrame containing bios of (only) the new unique players seen
+                Updated HashSet """
+
+    playerInfo = pd.DataFrame()
+
+    players = gameDF.id
+    newPlayers = [i for i in players if i not in unique]
+    for player in newPlayers:
+        unique.add(player)
+        if isHitter:
+            f = urlopen(game_url + '/batters/' + str(player) + '.xml')
+        else:
+            f = urlopen(game_url + '/pitchers/' + str(player) + '.xml')
+        data = f.read()
+        f.close()
+        
+        root = ET.fromstring(data)
+
+        newInfo = pd.DataFrame(root.attrib, index=[0])
+
+        playerInfo = pd.concat([playerInfo, newInfo])
+    
+    playerInfo.reset_index(inplace=True)
+
+    return playerInfo, unique
+
+
+def parseDate(x):
+    """Pandas map function to convert birthday from string to datetime object"""
+    return datetime.strptime(x, '%m/%d/%Y')
+
+
+def toNumeric(x):
+    """ Helper function to catch 'null' values in xml data"""
+    try:
+        ret = pd.to_numeric(x)
+    except ValueError:
+        ret = x
+    return ret
+
+
+def enrichBoxScore(box, events):
+    """Pull data from events DF and add to box score DF """
+        
+    return None
+
+
+### pandas map functions to cast strings to int/floats where appropriate
+### Test Script ### - Eventually just functions
+
+t0_2017 = date(2017, 4, 2)
+tf_2017 = date(2017, 4, 9)
 tDelta = tf_2017 - t0_2017
 
 #get all days in a season as a list of URL directories
@@ -161,21 +230,73 @@ all_games = [getGameIDs(i) for i in all_days]
 #flatten list
 flat_all_games = [item for sublist in all_games for item in sublist]
 
-games_url = urlCombiner(year, month, day)
-
 #get all stats for a single day
 
-summary, hitters, pitchers, events = pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
-
+summary, hitters, pitchers, events, bio = pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+unique_plyr = set()
+t0 = time()
 for i in flat_all_games:
     print i
     s, h, p = parseBoxScore(i)
+    # if there was an issue pulling data, skip to next game
+    if (s is None) or (h is None) or (p is None):
+        continue
+
     ev = parseEvents(i)
+    # pull player info without duplicates, this can be used as a map b/w id and names
+    hitter_info, unique_plyr = getPlayerInfo(i, h, unique_plyr, True)
+    pitcher_info, unique_plyr = getPlayerInfo(i, p, unique_plyr, False)
+
     summary = pd.concat([summary, s])
     hitters = pd.concat([hitters, h])
     pitchers = pd.concat([pitchers, p])
     events = pd.concat([events, ev])
-    events.reset_index(inplace=True)
+    bio = pd.concat([bio, hitter_info, pitcher_info])
+    print time() - t0
+    t0 = time()
+
+#reset index     
+summary.reset_index(inplace=True)
+hitters.reset_index(inplace=True)
+pitchers.reset_index(inplace=True)
+events.reset_index(inplace=True)
+bio.reset_index(inplace=True)
+
+#convert strings to numeric
+toNum_pitchers = ['bb', 'bf', 'bs', 'er', 'era', 'game_score', 'h', 'hld', 'hr', 'id', 'l', 'np', 'out',
+                  'r', 's', 's_bb', 's_er', 's_h', 's_ip', 's_r', 's_so', 'so', 'sv', 'w' ]
+toNum_hitters = ['a', 'ab', 'ao', 'avg', 'bb', 'bo','cs', 'd', 'e','fldg', 'gidp', 'go', 'h', 'hbp', 'hr', 'id',
+                 'lob', 'obp', 'ops', 'po', 'r', 'rbi', 's_bb', 's_h', 's_hr', 's_r', 's_rbi', 's_so', 'sac', 'sb',
+                 'sf', 'slg', 'so', 't']
+toNum_summary = ['away_id', 'away_loss', 'away_wins', 'game_pk', 'home_id', 'home_loss', 'home_wins', 'venue_id']
+toNum_events = ['ab_num', 'b', 's', 'batter', 'event_num', 'o', 'pitch_speed', 'pitcher']
+toNum_bio = ['id', 'jersey_number', 'weight']
+
+hitters[toNum_hitters] = hitters[toNum_hitters].apply(toNumeric)
+summary[toNum_summary] = summary[toNum_summary].apply(toNumeric)
+pitchers[toNum_pitchers] = pitchers[toNum_pitchers].apply(toNumeric)
+events[toNum_events] = events[toNum_events].apply(toNumeric)
+bio[toNum_bio] = bio[toNum_bio].apply(toNumeric)
+bio['dob_reformat'] = bio['dob'].apply(parseDate)
+
+#add quality start label
+pitchers = appendQS(pitchers)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
