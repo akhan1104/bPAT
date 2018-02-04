@@ -208,17 +208,97 @@ def toNumeric(x):
     return ret
 
 
+def matchupSummary(events, batter, pitcher):
+    """Get a batter v pitcher summary"""
+    df = events[(events.batter == batter) & (events.pitcher == pitcher)]
+
+
+def applyHit(ev):
+    
+    hit = set(('Single', 'Double', 'Triple', 'Home Run', 'Fan Interference'))
+    try:
+      if ev['event'] in hit:
+          h = True
+      else:
+          h = False
+      return h
+    except NameError:
+        print "PARSE ERROR"
+
+
+def applyOut(ev):
+
+    outs = set(('Strikeout', 'Groundout', 'Bunt Groundout', 'Bunt Lineout', 'Lineout',
+               'Grounded Into DP', 'Field Error', 'Forceout', 'Fielders Choice Out',
+               'Double Play', 'Triple Play', 'Strikeout - DP', 'Pop Out', 'Flyout',
+               'Bunt Pop Out', 'Fielders Choice', 'Grounded Into DP'))
+
+    try:
+      if ev['event'] in outs:
+          h = True
+      else:
+          h = False
+      return h
+    except NameError:
+        print "PARSE ERROR"
+
+
+def applyReach(ev):
+
+    reachBase = set(('Walk', 'Intent Walk', 'Batter Interference', 'Hit By Pitch'))
+
+    try:
+      if ev['event'] in reachBase:
+          h = True
+      else:
+          h = False
+      return h
+    except NameError:
+        print "PARSE ERROR"
+
+def applySac(ev):
+
+    sac = set(('Sac Fly DP', 'Sac Fly', 'Sac Bunt'))
+
+    try:
+      if ev['event'] in sac:
+          h = True
+      else:
+          h = False
+      return h
+    except NameError:
+        print "PARSE ERROR"
+
+
+
+def applyBatterHands(ev):
+    return lookupHand(ev.batter, True)
+
+
+def applyPitcherHands(ev):
+    return lookupHand(ev.pitcher, False)
+
+
+def lookupHand(id, batter):
+    # assumes bio dataframe loaded in environment, change when converted to clean OOP
+    if batter:
+        return bio[bio.id == id].reset_index(drop=True).loc[0].bats
+    else:
+        return bio[bio.id == id].reset_index(drop=True).loc[0].throws
+
+
 def enrichBoxScore(box, events):
     """Pull data from events DF and add to box score DF """
         
     return None
 
 
+
 ### pandas map functions to cast strings to int/floats where appropriate
 ### Test Script ### - Eventually just functions
 
-t0_2017 = date(2017, 4, 2)
-tf_2017 = date(2017, 4, 9)
+t0_2017 = date(2016, 9, 10)
+tf_2017 = date(2016, 10, 2)
 tDelta = tf_2017 - t0_2017
 
 #get all days in a season as a list of URL directories
@@ -281,6 +361,12 @@ bio['dob_reformat'] = bio['dob'].apply(parseDate)
 
 #add quality start label
 pitchers = appendQS(pitchers)
+events['Hit'] = events.apply(applyHit, axis=1)
+events['Out'] = events.apply(applyOut, axis=1)
+events['ReachBase'] = events.apply(applyReach, axis=1)
+events['Sac'] = events.apply(applySac, axis=1)
+events['PitcherHand'] = events.apply(applyPitcherHands, axis=1)
+events['BatterHand'] = events.apply(applyBatterHands, axis=1)
 
 
 
