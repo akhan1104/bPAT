@@ -1,9 +1,6 @@
 class PitcherSeason(object):
     """Class to define a pitcher season"""
-    pitcherName = None
-    pitchTypes = None
-    starts = None
-    feature_array = None
+
 
 
     def getPitches(self):
@@ -129,10 +126,108 @@ class PitchFx(object):
             return None
 
         elif len(self._abDF) == 1:  # single result
-            return self._abdF[0]
+            return self._abDF[0]
 
         else:
             return self._abDF
+
+
+class PitcherClustering(object):
+    """Class to run clustering on pitchers, for now a pre trained model must be given"""
+
+
+    def computeDocumentMatrix(X, n_clusters):
+        """@STATIC function to compute term frequency for clusters associated with pitcherseason
+           @Input: X: list of numpy cluster arrays
+                   n_clusters: number of clusters used in clustering (250)
+        """
+    assert isinstance(X, list), "First argument must be a list of np arrays"
+    
+    import numpy as np
+    count = np.zeros((len(X), n_clusters))
+    for idx, pitcher in enumerate(X):
+        for cluster in pitcher:
+            count[idx, cluster] += 1
+    return count
+
+
+    def __init__(self):
+        """ Read in
+        :param model:
+        """
+        self.feats = ['start_speed', 'pfx_x', 'pfx_z', 'px', 'pz', 'vx0', 'vz0']
+        self.pitcherseason = {}
+
+
+    def addModel(self, model, is_pickled=False):
+        """ Load existing individual pitch clustering model
+            @Input: model: object of type sklearn.cluster.KMeans
+            @Output: N/A
+        """
+        import sklearn
+        import pickle
+        from sklearn.cluster import KMeans
+
+        if is_pickled:
+            assert isinstance(model, str), "If model is pickled, pass the serialized path to file"
+            with open(model, 'rb') as input_file:
+                self.model = pickle.load(input_file)
+        else:
+            assert isinstance(model, KMeans)
+            self.model = model
+
+
+    def addFeats(self, feats):
+        pass
+
+    def fit(self, pitches, atbats):
+        """ Add data to the clusterer in the form of a dataframe and fit clusterer
+        @input: pitches: pd.DataFrame consisting of pitches
+        @output: N/A
+        """
+        import pandas as pd
+        import numpy as np
+
+        assert isinstance(pitches, pd.DataFrame) and isinstance(atbats, pd.DataFrame), \
+            "Pitches and atbats must be added in the form of a dataframe"
+
+        print "APPLYING JOIN KEYS..."
+        pitches['hashJoin'] = pitches['gameday_link'].astype(str) + pitches['num'].astype(str)
+        atbats['hashJoin'] = atbats['gameday_link'].astype(str) + atbats['num'].astype(str)
+
+        pitches.set_index('hashJoin', inplace=True)
+        atbats.set_index('hashJoin', inplace=True)
+        print "...KEYS APPLIED"
+        print "JOINING TABLES..."
+        res = pd.merge(pitches, atbats[['p_throws', 'event', 'pitcher_name']], left_index=True, right_index=True,
+                       how='inner')
+        print "...JOIN COMPLETE"
+
+        res['year'] = res.gameday_link.str[4:8]
+        res['pitcher_name'] = res['pitcher_name'].astype(str) + res['year'].astype(str)
+
+        uniqueNames = list(set(res.pitcher_name))
+
+        # iterate through pitchers, extract features for each one
+        for p in uniqueNames:
+
+            df_p = res[res.pitcher_name == p][self.feats]
+            num_Pitches = len(df_p)
+            if num_Pitches > 200:
+                arr = df_p.values
+                self.pitcherseason[p] = self.model.predict(arr[~np.isnan(arr).any(axis=1)])
+
+    
+
+
+
+
+
+
+
+
+
+
 
 
 
