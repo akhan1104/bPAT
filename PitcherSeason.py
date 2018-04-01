@@ -135,20 +135,21 @@ class PitchFx(object):
 class PitcherClustering(object):
     """Class to run clustering on pitchers, for now a pre trained model must be given"""
 
-
+    @staticmethod
     def computeDocumentMatrix(X, n_clusters):
         """@STATIC function to compute term frequency for clusters associated with pitcherseason
            @Input: X: list of numpy cluster arrays
                    n_clusters: number of clusters used in clustering (250)
         """
-    assert isinstance(X, list), "First argument must be a list of np arrays"
-    
-    import numpy as np
-    count = np.zeros((len(X), n_clusters))
-    for idx, pitcher in enumerate(X):
-        for cluster in pitcher:
-            count[idx, cluster] += 1
-    return count
+        assert isinstance(X, list), "First argument must be a list of np arrays"
+        
+        import numpy as np
+        count = np.zeros((len(X), n_clusters))
+        for idx, pitcher in enumerate(X):
+            for cluster in pitcher:
+                count[idx, cluster] += 1
+
+        return count
 
 
     def __init__(self):
@@ -178,12 +179,17 @@ class PitcherClustering(object):
 
 
     def addFeats(self, feats):
-        pass
+        """ Add columns if defaults aren't desired: ['start_speed', 'pfx_x', 'pfx_z', 'px', 'pz', 'vx0', 'vz0']
+            @Input: List of column names to be extracted, these MUST be in the pitch data DataFrame
+            @Output: N/A
+        """
+        self.feats = feats
+
 
     def fit(self, pitches, atbats):
         """ Add data to the clusterer in the form of a dataframe and fit clusterer
-        @input: pitches: pd.DataFrame consisting of pitches
-        @output: N/A
+        @Input: pitches: pd.DataFrame consisting of pitches
+        @Output: N/A
         """
         import pandas as pd
         import numpy as np
@@ -217,8 +223,30 @@ class PitcherClustering(object):
                 arr = df_p.values
                 self.pitcherseason[p] = self.model.predict(arr[~np.isnan(arr).any(axis=1)])
 
+        # Each pitch has been discretized
     
 
+    def cluster(self):
+        """ Run clustering on data
+        @Input: N/A
+        @Output:
+        """
+        from sklearn.decomposition import LatentDirichletAllocation
+
+        assert len(self.pitcherseason.values()) > 0, "The model must be fit with values before clustering"
+
+        pitchCount = self.computeDocumentMatrix(self.pitcherseason.values(), 250)
+
+        LDA = LatentDirichletAllocation(n_components=5)
+
+        topics = LDA.fit_transform(pitchCount)
+
+        keys = self.pitcherseason.keys()
+
+        self.topic_map = {}
+
+        for i, k in enumerate(keys):
+            self.topic_map[k] = topics[i, :]
 
 
 
